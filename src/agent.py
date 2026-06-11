@@ -1,9 +1,11 @@
-"""Deterministic routing layer for local security assistant tools."""
+"""Agent layers for DeepHat generation and local security triage tools."""
 
 from __future__ import annotations
 
 import re
-from typing import Callable
+from queue import Empty, Queue
+from threading import Thread
+from typing import Any, Callable, Iterable
 
 from src.tools.artifact_store import store_artifact
 from src.tools.code_lint import format_lint_results, lint_code
@@ -16,6 +18,208 @@ from src.tools.policy_check import check_policy, format_policy_results
 
 
 ToolHandler = Callable[[str], str]
+Message = dict[str, str]
+
+
+class DeepHatAgent:
+    """Lazy-loading wrapper around the configured DeepHat-compatible model."""
+
+    def __init__(
+        self,
+        model_id: str = "DeepHat/DeepHat-V1-7B",
+        device: str = "auto",
+        load_in_4bit: bool = False,
+    ) -> None:
+        self.model_id = model_id
+        self.device = device
+        self.load_in_4bit = load_in_4bit
+        self._tokenizer: Any | None = None
+        self._model: Any | None = None
+
+    @property
+    def tokenizer(self) -> Any:
+        self._ensure_model_loaded()
+        return self._tokenizer
+
+    @property
+    def model(self) -> Any:
+        self._ensure_model_loaded()
+        return self._model
+
+    def generate(
+        self,
+        messages: list[Message],
+        temperature: float = 0.7,
+        max_new_tokens: int = 2048,
+        top_p: float = 0.9,
+        repetition_penalty: float = 1.1,
+    ) -> str:
+        """Generate a complete response."""
+
+        return "".join(
+            self.generate_stream(
+                messages=messages,
+                temperature=temperature,
+                max_new_tokens=max_new_tokens,
+                top_p=top_p,
+                repetition_penalty=repetition_penalty,
+            )
+        )
+
+    def generate_stream(
+        self,
+        messages: list[Message],
+        temperature: float = 0.7,
+        max_new_tokens: int = 2048,
+        top_p: float = 0.9,
+        repetition_penalty: float = 1.1,
+    ) -> Iterable[str]:
+        """Yield generated text chunks using Transformers streaming when available."""
+
+        self._ensure_model_loaded()
+        inputs = self._encode_messages(messages)
+        inputs = self._move_inputs_to_model_device(inputs)
+
+        try:
+            import torch
+            from transformers import TextIteratorStreamer
+        except ImportError as exc:
+            raise RuntimeError(
+                "DeepHat generation requires torch and transformers. "
+                "Install requirements.txt before running model inference."
+            ) from exc
+
+        streamer = TextIteratorStreamer(
+            self._tokenizer,
+            skip_prompt=True,
+            skip_special_tokens=True,
+            timeout=1.0,
+        )
+        generation_errors: Queue[BaseException] = Queue(maxsize=1)
+        generation_kwargs = {
+            **inputs,
+            "streamer": streamer,
+            "max_new_tokens": max_new_tokens,
+            "temperature": max(temperature, 1e-5),
+            "top_p": top_p,
+            "repetition_penalty": repetition_penalty,
+            "do_sample": temperature > 0,
+            "pad_token_id": self._tokenizer.pad_token_id,
+            "eos_token_id": self._tokenizer.eos_token_id,
+        }
+
+        def run_generation() -> None:
+            try:
+                with torch.inference_mode():
+                    self._model.generate(**generation_kwargs)
+            except BaseException as exc:  # pragma: no cover - surfaced after thread exits.
+                generation_errors.put(exc)
+
+        thread = Thread(target=run_generation, daemon=True)
+        thread.start()
+        while True:
+            try:
+                chunk = next(streamer)
+            except StopIteration:
+                break
+            except Empty:
+                if not generation_errors.empty():
+                    break
+                if not thread.is_alive():
+                    break
+                continue
+            if chunk:
+                yield chunk
+        thread.join()
+
+        if not generation_errors.empty():
+            raise generation_errors.get()
+
+    def _ensure_model_loaded(self) -> None:
+        if self._model is not None and self._tokenizer is not None:
+            return
+
+        try:
+            import torch
+            from transformers import AutoModelForCausalLM, AutoTokenizer
+        except ImportError as exc:
+            raise RuntimeError(
+                "DeepHat generation requires torch and transformers. "
+                "Install requirements.txt before running model inference."
+            ) from exc
+
+        tokenizer = AutoTokenizer.from_pretrained(
+            self.model_id,
+            trust_remote_code=True,
+            padding_side="left",
+        )
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.eos_token
+
+        model_kwargs: dict[str, Any] = {
+            "trust_remote_code": True,
+            "low_cpu_mem_usage": True,
+        }
+        if self.device == "cpu":
+            model_kwargs["torch_dtype"] = torch.float32
+        else:
+            model_kwargs["torch_dtype"] = torch.bfloat16
+            model_kwargs["device_map"] = "auto" if self.device == "auto" else {"": self.device}
+
+        if self.load_in_4bit:
+            try:
+                from transformers import BitsAndBytesConfig
+            except ImportError as exc:
+                raise RuntimeError("4-bit loading requires bitsandbytes support.") from exc
+            model_kwargs["quantization_config"] = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_compute_dtype=torch.bfloat16,
+                bnb_4bit_use_double_quant=True,
+                bnb_4bit_quant_type="nf4",
+            )
+
+        model = AutoModelForCausalLM.from_pretrained(self.model_id, **model_kwargs)
+        if self.device == "cpu":
+            model = model.to("cpu")
+        model.eval()
+
+        self._tokenizer = tokenizer
+        self._model = model
+
+    def _encode_messages(self, messages: list[Message]) -> Any:
+        try:
+            return self._tokenizer.apply_chat_template(
+                messages,
+                tokenize=True,
+                return_tensors="pt",
+                return_dict=True,
+                add_generation_prompt=True,
+            )
+        except (AttributeError, TypeError):
+            prompt = self._fallback_chat_prompt(messages)
+            return self._tokenizer(prompt, return_tensors="pt")
+
+    def _move_inputs_to_model_device(self, inputs: Any) -> Any:
+        model_device = getattr(self._model, "device", None)
+        if model_device is None:
+            try:
+                model_device = next(self._model.parameters()).device
+            except (AttributeError, StopIteration):
+                model_device = None
+        if model_device is not None and hasattr(inputs, "to"):
+            return inputs.to(model_device)
+        return inputs
+
+    @staticmethod
+    def _fallback_chat_prompt(messages: list[Message]) -> str:
+        lines = []
+        for message in messages:
+            role = message.get("role", "user").strip().title()
+            content = message.get("content", "").strip()
+            if content:
+                lines.append(f"{role}: {content}")
+        lines.append("Assistant:")
+        return "\n".join(lines)
 
 
 class SecurityAssistantAgent:
