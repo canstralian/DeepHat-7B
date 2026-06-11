@@ -1,7 +1,7 @@
 import os
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
-def model_registry_lookup(prompt: str, context: List[Dict]) -> str:
+def model_registry_lookup(prompt: str, context: list[Dict]) -> str:
     """Query DeepHat model with context."""
     tokenizer = AutoTokenizer.from_pretrained("DeepHat/DeepHat-V1-7B")
     model = AutoModelForCausalLM.from_pretrained("DeepHat/DeepHat-V1-7B")
