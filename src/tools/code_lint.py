@@ -13,6 +13,7 @@ class LintRule:
     severity: str
     pattern: Pattern[str]
     message: str
+    include_string_literals: bool = False
 
 
 @dataclass(frozen=True)
@@ -32,6 +33,7 @@ RULES: tuple[LintRule, ...] = (
             r"(?i)\b(api[_-]?key|secret|token|password)\b\s*[:=]\s*['\"][^'\"]{8,}['\"]"
         ),
         message="Potential hardcoded credential or secret.",
+        include_string_literals=True,
     ),
     LintRule(
         rule_id="shell-true",
@@ -42,7 +44,7 @@ RULES: tuple[LintRule, ...] = (
     LintRule(
         rule_id="unsafe-eval",
         severity="high",
-        pattern=re.compile(r"\b(eval|exec)\s*\("),
+        pattern=re.compile(r"(?<!\.)\b(eval|exec)\s*\("),
         message="Dynamic code execution can lead to remote code execution.",
     ),
     LintRule(
@@ -73,7 +75,8 @@ def lint_code(code: str) -> list[LintFinding]:
     findings: list[LintFinding] = []
     for line_number, line in enumerate(code.splitlines(), start=1):
         for rule in RULES:
-            if rule.pattern.search(line):
+            searchable_line = line if rule.include_string_literals else _strip_string_literals(line)
+            if rule.pattern.search(searchable_line):
                 findings.append(
                     LintFinding(
                         rule_id=rule.rule_id,
@@ -84,6 +87,12 @@ def lint_code(code: str) -> list[LintFinding]:
                     )
                 )
     return findings
+
+
+def _strip_string_literals(line: str) -> str:
+    """Remove simple quoted content before matching non-secret rules."""
+
+    return re.sub(r"(['\"])(?:\\.|(?!\1).)*\1", "\"\"", line)
 
 
 def format_lint_results(findings: list[LintFinding]) -> str:
