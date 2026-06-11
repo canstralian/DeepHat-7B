@@ -1,2 +1,4 @@
-gradio==3.41.2
-requests==2.31.0
+gradio==6.17.3
+uvicorn==0.49.0
+websockets==16.0
+spaces==0.50.4
