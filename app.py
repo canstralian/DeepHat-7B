@@ -1,21 +1,28 @@
-from fastapi import FastAPI, HTTPException
-import uvicorn
+import gradio as gr
 from src.agent import SecurityAgent
 
-app = FastAPI(title="Security Assistant")
+# Initialize agent
 agent = SecurityAgent()
 
-@app.get("/")
-async def health():
-    return {"status": "healthy"}
-
-@app.post("/generate")
-async def generate(prompt: str):
+def process_prompt(prompt):
     try:
         response = agent.generate(prompt)
-        return {"response": response}
+        return response
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        return f"Error: {str(e)}"
+
+# Create Gradio interface
+with gr.Blocks() as demo:
+    gr.Markdown("## Secure Code Assistant")
+    input_prompt = gr.Textbox(label="Enter your request")
+    output_response = gr.Textbox(label="Response")
+    submit_btn = gr.Button("Submit")
+
+    submit_btn.click(
+        fn=process_prompt,
+        inputs=input_prompt,
+        outputs=output_response
+    )
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    demo.launch()
