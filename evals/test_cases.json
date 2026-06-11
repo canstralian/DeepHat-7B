@@ -1,0 +1,20 @@
+[
+  {
+    "name": "log4shell_lookup",
+    "prompt": "What is CVE-2021-44228?",
+    "tool": "auto",
+    "expected_contains": "Log4Shell"
+  },
+  {
+    "name": "shell_true_lint",
+    "prompt": "```python\nimport subprocess\nsubprocess.run(user_input, shell=True)\n```",
+    "tool": "code_lint",
+    "expected_contains": "shell=True"
+  },
+  {
+    "name": "policy_gap_check",
+    "prompt": "Deployments require peer review and rollback planning.",
+    "tool": "policy_check",
+    "expected_contains": "Change Control"
+  }
+]
