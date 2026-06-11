@@ -111,9 +111,12 @@ def load_model() -> tuple[Any, Any]:
         ) from exc
 
     model_id = os.getenv("MODEL_ID", DEFAULT_MODEL_ID)
-    tokenizer = AutoTokenizer.from_pretrained(model_id)
+    tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
     model = AutoModelForCausalLM.from_pretrained(
         model_id,
+        trust_remote_code=True,
         torch_dtype="auto",
         device_map="auto",
         low_cpu_mem_usage=True,
