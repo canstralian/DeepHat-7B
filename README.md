@@ -1,136 +1,76 @@
 ---
 title: DeepHat 7B
-emoji: 🐢
+emoji: "🐢"
 colorFrom: indigo
 colorTo: green
 sdk: gradio
 sdk_version: 6.17.3
-python_version: '3.12'
+python_version: "3.12"
 app_file: app.py
 pinned: false
 license: apache-2.0
 hf_oauth: true
 hf_oauth_scopes:
-- inference-api
+  - inference-api
 ---
 
-# DeepHat-7B
+# Security Assistant
 
-[![Python](https://img.shields.io/badge/Built%20With-Python-blue)](https://www.python.org/)  
-[![Repo Size](https://img.shields.io/github/repo-size/canstralian/DeepHat-7B)](https://github.com/canstralian/DeepHat-7B)  
-[![Issues](https://img.shields.io/github/issues/canstralian/DeepHat-7B)](https://github.com/canstralian/DeepHat-7B/issues)  
+Local Gradio app for security triage tasks. It routes prompts to tools for CVE lookup, dataset discovery, DeepHat model generation, static code checks, policy coverage checks, artifact storage, and local evaluation cases.
 
-DeepHat-7B is a Python-based open-source project exploring concepts in artificial intelligence, including **deephat** and **whiterabbwhite**. This repository aims to contribute to the development of innovative AI applications, with community collaboration at its core.
+Most triage tools are deterministic and local. The `model_registry_lookup` tool lazily loads the configured Hugging Face model and may download model weights on first use. The app does not download malware samples or execute user-submitted code.
 
-Check out the hosted demo and associated resources at the [Hugging Face Space](https://huggingface.co/spaces/S-Dreamer/DeepHat-7B).
+## Project Structure
 
----
+```text
+security-assistant/
+|-- app.py
+|-- requirements.txt
+|-- src/
+|   |-- agent.py
+|   |-- tools/
+|   `-- utils/
+|-- evals/
+`-- tests/
+```
 
-## 📚 Table of Contents
-- [About](#about)
-- [Features](#features)
-- [Installation](#installation)
-- [Usage](#usage)
-- [Contributing](#contributing)
-- [License](#license)
-- [Acknowledgments](#acknowledgments)
+## Run Locally
 
----
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+python app.py
+```
 
-## 📖 About
+Then open the local Gradio URL printed by the server.
 
-DeepHat-7B is designed to be accessible for developers and researchers while leveraging cutting-edge AI methodologies. Built with Python, it enables rapid prototyping and extensibility. The project integrates AI concepts and emphasizes creativity in machine learning.
+## Tooling
 
----
+- `dataset_search`: searches a small local catalog of security datasets.
+- `model_registry_lookup`: lazily loads `MODEL_ID` and generates a response with retrieved context.
+- `cve_lookup`: looks up a small offline CVE catalog for deterministic demos.
+- `code_lint`: applies static security regex checks without executing submitted code.
+- `code_test`: parses Python syntax and test-like structure without executing submitted code.
+- `policy_check`: checks policy text for common control coverage.
+- `artifact_store`: writes Markdown notes to `outputs/artifacts`.
+- `eval_runner`: runs local JSON evaluation cases from `evals/test_cases.json`.
 
-## ✨ Features
+## Configuration
 
-- **Python-Powered**: Fully developed in Python for flexibility and ease of use.
-- **Community-Oriented**: Open-source and ready for collaboration.
-- **Innovative Concepts**: Incorporates advanced AI topics, including the `deephat` and `whiterabbwhite` paradigms.
-- **Demo Ready**: Hosted demo available on Hugging Face for quick experiments.
+Environment variables:
 
----
+- `SECURITY_ASSISTANT_TITLE`: overrides the Gradio app title.
+- `SECURITY_ASSISTANT_ARTIFACT_DIR`: overrides where `artifact_store` writes Markdown artifacts.
+- `MODEL_ID`: overrides the model loaded by `model_registry_lookup` (`DeepHat/DeepHat-V1-7B` by default).
+- `MAX_NEW_TOKENS`: controls generation length (`256` by default).
+- `DO_SAMPLE`: set to `true` to enable sampling; deterministic generation is the default.
 
-## 🔧 Installation
+## Validate
 
-Ensure your environment meets the prerequisites and install the project locally.
+```powershell
+python -m compileall app.py src evals tests
+python -m pytest
+```
 
-### Prerequisites
-- Python 3.9+ installed
-- `pip` to manage dependencies
-- [Git](https://git-scm.com/) for cloning the repository
-
-### Steps
-
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/canstralian/DeepHat-7B.git
-   cd DeepHat-7B
-   ```
-
-2. (Optional) Create and activate a virtual environment:
-   ```bash
-   python3 -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
-
-3. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
----
-
-## 🚀 Usage
-
-Here’s how you can use the project:
-
-1. Run the main Python file:
-   ```bash
-   python main.py
-   ```
-2. Customize parameters or modules within `config/` for specific experiments.
-
-Contribute examples and usage cases once implemented.
-
----
-
-## 🤝 Contributing
-
-We welcome contributions from the community! To contribute:
-
-1. Fork the repository.
-2. Create a new feature branch:
-   ```bash
-   git checkout -b feature-name
-   ```
-3. Commit your changes:
-   ```bash
-   git commit -m "Add <feature>"
-   ```
-4. Push to the branch:
-   ```bash
-   git push origin feature-name
-   ```
-5. Open a Pull Request.
-
-Refer to [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
-
----
-
-## 📜 License
-
-This repository is currently under **no license**. For permissions, contact the repository owner via [GitHub](https://github.com/canstralian).
-
----
-
-## 🙏 Acknowledgments
-
-- Inspired by innovation in AI research.
-- Hosted resources and demo facilitated by [Hugging Face Spaces](https://huggingface.co/spaces/S-Dreamer/DeepHat-7B).
-
-For inquiries or feedback, you can open a discussion or issue in the repository.
-
---- 
-
+The local checks are narrow by design. Operational vulnerability findings should still be verified against authoritative, current sources.
