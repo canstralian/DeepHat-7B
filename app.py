@@ -1,28 +1,75 @@
+"""Gradio entrypoint for the security assistant."""
+
+from __future__ import annotations
+
 import gradio as gr
-from src.agent import SecurityAgent
 
-# Initialize agent
-agent = SecurityAgent()
+from src.agent import SecurityAssistantAgent
+from src.utils.config import get_config
 
-def process_prompt(prompt):
-    try:
-        response = agent.generate(prompt)
-        return response
-    except Exception as e:
-        return f"Error: {str(e)}"
 
-# Create Gradio interface
-with gr.Blocks() as demo:
-    gr.Markdown("# Secure Code Assistant")
-    input_prompt = gr.Textbox(label="Enter your request")
-    output_response = gr.Textbox(label="Response")
-    submit_btn = gr.Button("Submit")
+TOOL_CHOICES = [
+    "auto",
+    "dataset_search",
+    "model_registry_lookup",
+    "cve_lookup",
+    "code_lint",
+    "code_test",
+    "policy_check",
+    "eval_runner",
+]
 
-    submit_btn.click(
-        fn=process_prompt,
-        inputs=input_prompt,
-        outputs=output_response
-    )
+
+def build_demo(agent: SecurityAssistantAgent | None = None) -> gr.Blocks:
+    """Build the Gradio UI without launching it."""
+
+    config = get_config()
+    assistant = agent or SecurityAssistantAgent()
+
+    with gr.Blocks(title=config.app_title) as demo:
+        gr.Markdown(f"# {config.app_title}")
+        gr.Markdown(
+            "Ask for CVE context, dataset/model lookup, code review, policy checks, "
+            "or evaluation status. The assistant uses local deterministic tools."
+        )
+
+        with gr.Row():
+            tool = gr.Dropdown(
+                choices=TOOL_CHOICES,
+                value="auto",
+                label="Tool",
+                info="Use auto routing or force a specific local tool.",
+            )
+
+        prompt = gr.Textbox(
+            label="Request",
+            lines=8,
+            placeholder=(
+                "Examples: CVE-2021-44228, lint this Python snippet, "
+                "check this deployment policy, search malware datasets"
+            ),
+        )
+        output = gr.Markdown(label="Assistant response")
+
+        with gr.Row():
+            submit = gr.Button("Analyze", variant="primary")
+            clear = gr.ClearButton([prompt, output])
+
+        submit.click(
+            fn=assistant.respond,
+            inputs=[prompt, tool],
+            outputs=output,
+            api_name="analyze",
+        )
+        prompt.submit(
+            fn=assistant.respond,
+            inputs=[prompt, tool],
+            outputs=output,
+            api_name=False,
+        )
+
+    return demo
+
 
 if __name__ == "__main__":
-    demo.launch()
+    build_demo().launch()
