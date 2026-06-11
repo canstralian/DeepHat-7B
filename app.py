@@ -29,8 +29,8 @@ def build_demo(agent: SecurityAssistantAgent | None = None) -> gr.Blocks:
     with gr.Blocks(title=config.app_title) as demo:
         gr.Markdown(f"# {config.app_title}")
         gr.Markdown(
-            "Ask for CVE context, dataset/model lookup, code review, policy checks, "
-            "or evaluation status. The assistant uses local deterministic tools."
+            "Ask for CVE context, dataset lookup, DeepHat model generation, "
+            "code review, policy checks, or evaluation status."
         )
 
         with gr.Row():
