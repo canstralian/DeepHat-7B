@@ -33,7 +33,7 @@ jobs:
         run: python -m pip install --upgrade pip huggingface_hub pytest
 
       - name: Compile Python files
-        run: python -m compileall app.py src evals tests scripts
+        run: python -m compileall app.py api_client.py cli.py src evals tests scripts workflows
 
       - name: Run tests
         run: python -m pytest
