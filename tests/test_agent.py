@@ -1,11 +1,14 @@
 from pathlib import Path
 from unittest.mock import patch
 
-from src.agent import SecurityAgent, SecurityAssistantAgent
+from api_client import _extract_response
+from src.agent import DeepHatAgent, SecurityAgent, SecurityAssistantAgent
 from src.tools.artifact_store import store_artifact
 from src.tools.code_test import analyze_python_code
 from src.tools.eval_runner import run_evals
 from src.tools.model_registry_lookup import model_registry_lookup
+from src.utils import export_chat
+from workflows.ci_integration import ci_scan
 
 
 def test_agent_routes_cve_lookup() -> None:
@@ -104,3 +107,57 @@ def test_legacy_model_registry_lookup_wrapper() -> None:
         response = model_registry_lookup("code model", [])
 
     assert response == "generated answer"
+
+
+def test_deephat_fallback_prompt_formats_messages() -> None:
+    prompt = DeepHatAgent._fallback_chat_prompt(
+        [
+            {"role": "system", "content": "Stay scoped."},
+            {"role": "user", "content": "Review this code."},
+        ]
+    )
+
+    assert "System: Stay scoped." in prompt
+    assert "User: Review this code." in prompt
+    assert prompt.endswith("Assistant:")
+
+
+def test_export_chat_writes_markdown(tmp_path: Path) -> None:
+    path = export_chat(
+        [
+            {"role": "user", "content": "hello"},
+            {"role": "assistant", "content": "world"},
+        ],
+        "markdown",
+        output_dir=tmp_path,
+    )
+
+    content = path.read_text(encoding="utf-8")
+    assert path.suffix == ".md"
+    assert "## User" in content
+    assert "hello" in content
+
+
+def test_api_client_extracts_last_message_content() -> None:
+    response = _extract_response(
+        [
+            {"role": "user", "content": "question"},
+            {"role": "assistant", "content": "answer"},
+        ]
+    )
+
+    assert response == "answer"
+
+
+def test_ci_integration_reports_high_findings(tmp_path: Path, monkeypatch) -> None:
+    source = tmp_path / "bad.py"
+    source.write_text("import subprocess\nsubprocess.run(user_input, shell=True)\n", encoding="utf-8")
+    report = tmp_path / "report.json"
+
+    monkeypatch.setenv("CHANGED_FILES", str(source))
+    monkeypatch.setenv("SCAN_REPORT_PATH", str(report))
+
+    exit_code = ci_scan()
+
+    assert exit_code == 1
+    assert "shell-true" in report.read_text(encoding="utf-8")
